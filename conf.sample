@@ -1,0 +1,8 @@
+type     = oci8
+user     = joe
+pw       = tiger
+protocol = tcp
+host     = 127.0.0.1
+port     = 1521
+db       = MYDB
+

@@ -54,13 +54,26 @@ class syntax_plugin_sql extends DokuWiki_Syntax_Plugin {
      * Connect pattern to lexer
      */
     function connectTo($mode) {
-      $this->Lexer->addEntryPattern('<sql [^>]*>',$mode,'plugin_sql');
+      $this->Lexer->addEntryPattern('<sql>(?=.*</sql>)',$mode,'plugin_sql');
     }
 	
     function postConnect() {
       $this->Lexer->addExitPattern('</sql>','plugin_sql');
     }
- 
+
+
+	function _read_conf($filename) {
+		$result = array();
+
+		$lines = file($filename, FILE_IGNORE_NEW_LINES|FILE_SKIP_EMPTY_LINES);
+		foreach ($l as $lines) {
+			$field = explode('=', $l, 2);
+			$key = trim($field[0]);
+			$val = trim($field[1]);
+			$result[$key] = $val;
+		}
+		return $result;
+	}
  
     /**
      * Handle the match
@@ -68,11 +81,28 @@ class syntax_plugin_sql extends DokuWiki_Syntax_Plugin {
     function handle($match, $state, $pos, Doku_Handler $handler){
         switch ($state) {
           case DOKU_LEXER_ENTER : 
-			$urn = property('db',$match);
+			$dsnid = property('db', $match);
 			$wikitext = property('wikitext', $match);
 			$display = property('display', $match);
 			$position = property('position', $match);
-			return array('urn' => $urn, 'wikitext' => $wikitext, 'display' => $display, 'position' => $position);
+
+			# get DB data from file
+			# FIXME: check for file existence and readability
+			$connect_data = _read_conf('/etc/opt/dw-plugin-sql/'."$dsnid".'.conf');
+			return array(
+				# connection data
+				'type'     => $connect_data['type'],
+				'user'     => $connect_data['user'],
+				'pw'       => $connect_data['pw'],
+				'protocol' => $connect_data['protocol'],
+				'host'     => $connect_data['host'],
+				'port'     => $connect_data['port'],
+				'db'       => $connect_data['db'],
+
+				'wikitext' => $wikitext,
+				'display' => $display,
+				'position' => $position
+			);
             break;
           case DOKU_LEXER_UNMATCHED :
 			$queries = explode(';', $match);
@@ -198,3 +228,4 @@ class syntax_plugin_sql extends DokuWiki_Syntax_Plugin {
         return false;
     }
 }
+#EOF
