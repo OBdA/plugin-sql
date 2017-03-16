@@ -10,7 +10,7 @@ if(!defined('DOKU_INC')) define('DOKU_INC',realpath(dirname(__FILE__).'/../../')
 if(!defined('DOKU_PLUGIN')) define('DOKU_PLUGIN',DOKU_INC.'lib/plugins/');
 require_once(DOKU_PLUGIN.'syntax.php');
 require_once(DOKU_INC.'inc/parserutils.php');
-require_once('DB.php');
+require_once('MDB2.php');
  
 function property($prop, $xml)
 {
@@ -29,10 +29,10 @@ function property($prop, $xml)
 
 function _read_conf($filename) {
 	$result = array();
-	print( '_read_conf(filename=' . $filename . ');<br/>' );
+	#print( '_read_conf(filename=' . $filename . ');<br/>' );
 
 	$lines = file($filename, FILE_IGNORE_NEW_LINES|FILE_SKIP_EMPTY_LINES);
-	print( 'LINES='); var_dump($lines);
+	#print( 'LINES='); var_dump($lines);
 	foreach ($lines as $l) {
 		$field = explode('=', $l, 2);
 		$key = trim($field[0]);
@@ -97,12 +97,12 @@ class syntax_plugin_sql extends DokuWiki_Syntax_Plugin {
 			$pattern = $prop . '>(.*?)</sql>';
 			$rt = preg_match($pattern, $match, $matches);
 			if ($rt == FALSE) {
-				print("\n<br/>ERROR: pattern match failed<br>\n");
+				#print("\n<br/>ERROR: pattern match failed<br>\n");
 				return array();
 			}
-			var_dump($matches);
+			#print("\nHANDLE: "); var_dump($matches);
 			$sql = $matches[1];
-			print("\n<br/>SQL='$sql'<br/>\n");
+			#print("\n<br/>SQL='$sql'<br/>\n");
 
 			# get DB data from file
 			# FIXME: check for file existence and readability
@@ -112,21 +112,27 @@ class syntax_plugin_sql extends DokuWiki_Syntax_Plugin {
 			$connect_data['wikitext'] = $wikitext;
 			$connect_data['display'] = $display;
 			$connect_data['position'] = $position;
-			print("\nREAD-CONF (file=$conf_file): "); var_dump($connect_data);
+			#print("\nREAD-CONF (file=$conf_file): "); var_dump($connect_data);
 
 			return $connect_data;
-            break;
-          case DOKU_LEXER_UNMATCHED :
+			break;
+
+			/* Ignore this case
+          case DOKU_LEXER_UNMATCHED:
 			$queries = explode(';', $match);
 			if (trim(end($queries)) == "") {
 				array_pop($queries);
 			}
+			print('<pre>DOKU_LEXER_UNMATCHED:'); var_dump($queries); print('</pre>');
 			return array('sql' => $queries);
-            break;
+			break;
+			 */
+
           case DOKU_LEXER_EXIT :
 			$this->wikitext_enabled = TRUE;
 			$this->display_inline = FALSE;
 			$this->vertical_position = FALSE;
+			#print('<pre>DOKU_LEXER_UNMATCHED:'); var_dump($match); print('</pre>');
 			return array('wikitext' => 'enable', 'display' => 'block', 'position' => 'horizontal');
             break;
         }
@@ -139,11 +145,10 @@ class syntax_plugin_sql extends DokuWiki_Syntax_Plugin {
     function render($mode, Doku_Renderer $renderer, $data) {
 		$renderer->info['cache'] = false;
 
-		print("\n<pre>RENDER-DATA (mode=$mode): "); var_dump($data);
-		print("\n</pre>");
-		return true;
+        if($mode == 'xhtml' and $data['sql']) {
+			print("\n<pre>RENDER-DATA (mode=$mode): "); var_dump($data);
+			print("\n</pre>");
 		
-        if($mode == 'xhtml') {
 			if ($data['wikitext'] == 'disable') {
 				$this->wikitext_enabled = FALSE;
 			} else if ($data['wikitext'] == 'enable') {
@@ -159,88 +164,58 @@ class syntax_plugin_sql extends DokuWiki_Syntax_Plugin {
 			} else if ($data['position'] == 'horizontal') {
 				$this->vertical_position = FALSE;
 			}
-			if ($data['urn'] != "") {
-				$db =& DB::connect($data['urn']);
-				if (DB::isError($db)) {
-					$error = $db->getMessage();
-					$renderer->doc .= '<div class="error">'. $error .'</div>';
-					return TRUE;
-				}
-				else {
-					array_push($this->databases, $db);
-				}
-			}
-			elseif (!empty($data['sql'])) {
-			    $db =& array_pop($this->databases);
-				if (!empty($db)) {
-					foreach ($data['sql'] as $query) {
-						$db->setFetchMode(DB_FETCHMODE_ASSOC);
-						$result =& $db->getAll($query);
-						if (DB::isError($result)) {
-							$error = $result->getMessage();
-							$renderer->doc .= '<div class="error">'. $error .'</div>';
-							return TRUE;
-						}
-						elseif ($result == DB_OK or empty($result)) {
-						}
-						else {
 
-							if (! $this->vertical_position) {
-								if ($this->display_inline) {
-									$renderer->doc .= '<table class="inline" style="display:inline"><tbody>';
-								} else {
-									$renderer->doc .= '<table class="inline"><tbody>';
-								}
-								$renderer->doc .= '<tr>';
-								foreach (array_keys($result[0]) as $header) {
-									$renderer->doc .= '<th>';
-									if ($this->wikitext_enabled) {
-										$renderer->nest(p_get_instructions($header));
-									} else {
-										$renderer->cdata($header);
-									}
-									$renderer->doc .= '</th>';
-								}
-								$renderer->doc .= '</tr>';
-								foreach ($result as $row) {
-									$renderer->doc .= '<tr>';
-									foreach ($row as $cell) {
-										$renderer->doc .= '<td>';
-										if ($this->wikitext_enabled) {
-											$renderer->nest(p_get_instructions($cell));
-										} else {
-											$renderer->cdata($cell);
-										}
-										$renderer->doc .= '</td>';
-									}
-									$renderer->doc .= '</tr>';
-								}
-								$renderer->doc .= '</tbody></table>';
-							} else {
-								foreach ($result as $row) {
-									$renderer->doc .= '<table class="inline"><tbody>';
-									foreach ($row as $name => $cell) {
-										$renderer->doc .= '<tr>';
-										$renderer->doc .= "<th>$name</th>";
-										$renderer->doc .= '<td>';
-										if ($this->wikitext_enabled) {
-											$renderer->nest(p_get_instructions($cell));
-										} else {
-											$renderer->cdata($cell);
-										}
-										$renderer->doc .= '</td>';
-										$renderer->doc .= '</tr>';
-									}
-									$renderer->doc .= '</tbody></table>';
-								}
-							}
-						}
-					}
-				}
+
+			$options = array( 'debug' => 2 );
+			$db =& MDB2::connect($data, $options);
+			if (PEAR::isError($db)) {
+				# FIXME: use correct error handling
+				echo "<pre>";
+			    print('DEBUG: ' . $db->getDebugInfo() . "\n");
+				print('USER: ' . $db->getUserInfo() . "\n");
+				echo "</pre>";
+				return true;
+			    #die('get connetion: ' . $db->getMessage() . "\n");
 			}
-            return true;
-        }
-        return false;
+			# set default fetch mode
+			$db->setFetchMode(DB_FETCHMODE_ASSOC);
+
+			# start query and get the result object
+			echo "<pre>Start query: >".$data['sql']."<</pre>";
+			$result =& $db->query($data['sql']);
+			if (PEAR::isError($result)) {
+				echo "<pre>";
+				print('DEBUG: ' . $result->getDebugInfo() . "\n");
+				print('USER: ' . $result->getUserInfo() . "\n");
+				echo "</pre>";
+				return true;
+			}
+
+			# BEGIN: table
+			echo "<thead>";
+
+			# BEGIN: header
+			echo "<thead>";
+			echo "<tr>";
+			foreach ($result->getColumnNames(TRUE) as $k ) {
+				echo "<th>$k</th>";
+			}
+			echo "</tr>";
+			# END: header
+			echo "</thead>";
+	
+			# print elements
+			while (($row = $result->fetchRow(MDB2_FETCHMODE_ASSOC))) {
+				echo "<tr>";
+				foreach ($row as $k => $val) {
+					echo "<th>$val</th>";
+				}
+				echo "</tr>";
+			}
+			# END: table
+			echo "</table>";
+		}
+        return true;
     }
 }
 #EOF
