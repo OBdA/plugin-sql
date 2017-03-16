@@ -1,8 +1,13 @@
-type     = oci8
-user     = joe
-pw       = tiger
+# Configure your database access
+
+phptype  = oci8
+username = joe
+password = tiger
 protocol = tcp
-host     = 127.0.0.1
+hostspec = 127.0.0.1
 port     = 1521
 db       = MYDB
+
+# for OCI8 databases:
+service  = MYDB
 

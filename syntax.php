@@ -14,15 +14,32 @@ require_once('DB.php');
  
 function property($prop, $xml)
 {
+	#print('PROPERTY: PROP='.$prop.', XML=' . $xml . "\n" . '<br/>');
+	$match = FALSE;
 	$pattern = $prop ."='([^']*)')";
 	if (ereg($pattern, $xml, $matches)) {
-		return $matches[1];
+		$match = $matches[1];
 	}
 	$pattern = $prop .'="([^"]*)"';
 	if (ereg($pattern, $xml, $matches)) {
-		return $matches[1];
+		$match = $matches[1];
 	}
-	return FALSE;
+	return $match;
+}
+
+function _read_conf($filename) {
+	$result = array();
+	print( '_read_conf(filename=' . $filename . ');<br/>' );
+
+	$lines = file($filename, FILE_IGNORE_NEW_LINES|FILE_SKIP_EMPTY_LINES);
+	print( 'LINES='); var_dump($lines);
+	foreach ($lines as $l) {
+		$field = explode('=', $l, 2);
+		$key = trim($field[0]);
+		$val = trim($field[1]);
+		$result[$key] = $val;
+	}
+	return $result;
 }
  
 /**
@@ -52,9 +69,11 @@ class syntax_plugin_sql extends DokuWiki_Syntax_Plugin {
  
     /**
      * Connect pattern to lexer
-     */
-    function connectTo($mode) {
-      $this->Lexer->addEntryPattern('<sql>(?=.*</sql>)',$mode,'plugin_sql');
+	 */
+	# Usage:  <sql db=“fnt”>select * from table</sql>
+	function connectTo($mode) {
+		#FIXME: fix the regex for parsing the options
+		$this->Lexer->addEntryPattern('<sql\b(?:\s+(?:db|par2)="[^">\r\n]*")*\s*>(?:.*?</sql>)', $mode,'plugin_sql');
     }
 	
     function postConnect() {
@@ -62,23 +81,10 @@ class syntax_plugin_sql extends DokuWiki_Syntax_Plugin {
     }
 
 
-	function _read_conf($filename) {
-		$result = array();
-
-		$lines = file($filename, FILE_IGNORE_NEW_LINES|FILE_SKIP_EMPTY_LINES);
-		foreach ($l as $lines) {
-			$field = explode('=', $l, 2);
-			$key = trim($field[0]);
-			$val = trim($field[1]);
-			$result[$key] = $val;
-		}
-		return $result;
-	}
- 
     /**
      * Handle the match
      */
-    function handle($match, $state, $pos, Doku_Handler $handler){
+    function handle($match, $state, $pos, Doku_Handler $handler) {
         switch ($state) {
           case DOKU_LEXER_ENTER : 
 			$dsnid = property('db', $match);
@@ -86,23 +92,29 @@ class syntax_plugin_sql extends DokuWiki_Syntax_Plugin {
 			$display = property('display', $match);
 			$position = property('position', $match);
 
+			# from $match get out the SQL statement
+			$sql = '';
+			$pattern = $prop . '>(.*?)</sql>';
+			$rt = preg_match($pattern, $match, $matches);
+			if ($rt == FALSE) {
+				print("\n<br/>ERROR: pattern match failed<br>\n");
+				return array();
+			}
+			var_dump($matches);
+			$sql = $matches[1];
+			print("\n<br/>SQL='$sql'<br/>\n");
+
 			# get DB data from file
 			# FIXME: check for file existence and readability
-			$connect_data = _read_conf('/etc/opt/dw-plugin-sql/'."$dsnid".'.conf');
-			return array(
-				# connection data
-				'type'     => $connect_data['type'],
-				'user'     => $connect_data['user'],
-				'pw'       => $connect_data['pw'],
-				'protocol' => $connect_data['protocol'],
-				'host'     => $connect_data['host'],
-				'port'     => $connect_data['port'],
-				'db'       => $connect_data['db'],
+			$conf_file = '/etc/opt/dw-plugin-sql/'."$dsnid".'.conf';
+			$connect_data = _read_conf($conf_file);
+			$connect_data['sql'] = $sql;
+			$connect_data['wikitext'] = $wikitext;
+			$connect_data['display'] = $display;
+			$connect_data['position'] = $position;
+			print("\nREAD-CONF (file=$conf_file): "); var_dump($connect_data);
 
-				'wikitext' => $wikitext,
-				'display' => $display,
-				'position' => $position
-			);
+			return $connect_data;
             break;
           case DOKU_LEXER_UNMATCHED :
 			$queries = explode(';', $match);
@@ -126,9 +138,12 @@ class syntax_plugin_sql extends DokuWiki_Syntax_Plugin {
      */
     function render($mode, Doku_Renderer $renderer, $data) {
 		$renderer->info['cache'] = false;
+
+		print("\n<pre>RENDER-DATA (mode=$mode): "); var_dump($data);
+		print("\n</pre>");
+		return true;
 		
-        if($mode == 'xhtml'){
-			
+        if($mode == 'xhtml') {
 			if ($data['wikitext'] == 'disable') {
 				$this->wikitext_enabled = FALSE;
 			} else if ($data['wikitext'] == 'enable') {
