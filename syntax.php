@@ -84,7 +84,8 @@ class syntax_plugin_sql extends DokuWiki_Syntax_Plugin {
     /**
      * Handle the match
      */
-    function handle($match, $state, $pos, Doku_Handler $handler) {
+	function handle($match, $state, $pos, Doku_Handler $handler) {
+		$data = array();
         switch ($state) {
           case DOKU_LEXER_ENTER : 
 			$dsnid = property('db', $match);
@@ -94,27 +95,26 @@ class syntax_plugin_sql extends DokuWiki_Syntax_Plugin {
 
 			# from $match get out the SQL statement
 			$sql = '';
-			$pattern = $prop . '>(.*?)</sql>';
+			$pattern = "/>(.*?)<\/sql>/m";
 			$rt = preg_match($pattern, $match, $matches);
 			if ($rt == FALSE) {
 				#print("\n<br/>ERROR: pattern match failed<br>\n");
 				return array();
 			}
-			#print("\nHANDLE: "); var_dump($matches);
-			$sql = $matches[1];
-			#print("\n<br/>SQL='$sql'<br/>\n");
+			$sql = trim($matches[1]);
 
 			# get DB data from file
 			# FIXME: check for file existence and readability
 			$conf_file = '/etc/opt/dw-plugin-sql/'."$dsnid".'.conf';
 			$connect_data = _read_conf($conf_file);
-			$connect_data['sql'] = $sql;
-			$connect_data['wikitext'] = $wikitext;
-			$connect_data['display'] = $display;
-			$connect_data['position'] = $position;
+			$data['dsn'] = $connect_data;
+			$data['sql'] = $sql;
+			$data['wikitext'] = $wikitext;
+			$data['display'] = $display;
+			$data['position'] = $position;
 			#print("\nREAD-CONF (file=$conf_file): "); var_dump($connect_data);
 
-			return $connect_data;
+			return $data;
 			break;
 
 			/* Ignore this case
@@ -146,8 +146,8 @@ class syntax_plugin_sql extends DokuWiki_Syntax_Plugin {
 		$renderer->info['cache'] = false;
 
         if($mode == 'xhtml' and $data['sql']) {
-			print("\n<pre>RENDER-DATA (mode=$mode): "); var_dump($data);
-			print("\n</pre>");
+			#print("\n<pre>RENDER-DATA (mode=$mode): "); var_dump($data);
+			#print("\n</pre>");
 		
 			if ($data['wikitext'] == 'disable') {
 				$this->wikitext_enabled = FALSE;
@@ -167,7 +167,7 @@ class syntax_plugin_sql extends DokuWiki_Syntax_Plugin {
 
 
 			$options = array( 'debug' => 2 );
-			$db =& MDB2::connect($data, $options);
+			$db =& MDB2::connect($data['dsn'], $options);
 			if (PEAR::isError($db)) {
 				# FIXME: use correct error handling
 				echo "<pre>";
@@ -181,9 +181,14 @@ class syntax_plugin_sql extends DokuWiki_Syntax_Plugin {
 			$db->setFetchMode(DB_FETCHMODE_ASSOC);
 
 			# start query and get the result object
-			echo "<pre>Start query: >".$data['sql']."<</pre>";
+			echo "<pre>";
+			echo "STATEMENT: ";
+			var_dump($data['sql']);
+			echo "</pre>";
+
 			$result =& $db->query($data['sql']);
 			if (PEAR::isError($result)) {
+				# FIXME: use correct error handling
 				echo "<pre>";
 				print('DEBUG: ' . $result->getDebugInfo() . "\n");
 				print('USER: ' . $result->getUserInfo() . "\n");
@@ -192,28 +197,29 @@ class syntax_plugin_sql extends DokuWiki_Syntax_Plugin {
 			}
 
 			# BEGIN: table
-			echo "<thead>";
+			$renderer->doc .= "\n\n";
+			$renderer->doc .= "<table>\n";
 
 			# BEGIN: header
-			echo "<thead>";
-			echo "<tr>";
+			$renderer->doc .= "<thead>";
+			$renderer->doc .= "<tr>";
 			foreach ($result->getColumnNames(TRUE) as $k ) {
-				echo "<th>$k</th>";
+				$renderer->doc .= "<th>$k</th>";
 			}
-			echo "</tr>";
+			$renderer->doc .= "</tr>\n";
 			# END: header
-			echo "</thead>";
+			$renderer->doc .= "</thead>\n";
 	
 			# print elements
 			while (($row = $result->fetchRow(MDB2_FETCHMODE_ASSOC))) {
-				echo "<tr>";
+				$renderer->doc .= "<tr>";
 				foreach ($row as $k => $val) {
-					echo "<th>$val</th>";
+					$renderer->doc .= "<th>$val</th>";
 				}
-				echo "</tr>";
+				$renderer->doc .= "</tr>\n";
 			}
 			# END: table
-			echo "</table>";
+			$renderer->doc .= "</table>\n";
 		}
         return true;
     }
